@@ -1,0 +1,54 @@
+:root {
+  /* Keep GitHub Light core */
+  --color-bg: #ffffff;
+  --color-text: #24292f;
+  --color-accent: #0969da;
+  --color-accent-hover: #1f6feb;
+
+  /* Refined neutrals for clarity */
+  --color-text-primary: #24292f; /* true GitHub dark gray for text */
+  --color-text-secondary: #57606a;
+  --color-text-tertiary: #6e7781;
+
+  /* Backgrounds slightly desaturated and lighter */
+  --color-bg-card: #f6f8fa;
+  --color-bg-card-opacity: rgba(246, 248, 250, 0.9);
+  --color-bg-sidebar: #f3f4f6;
+  --color-bg-sidebar-opacity: rgba(243, 244, 246, 0.9);
+  --color-bg-gradient-start: #ffffff;
+  --color-bg-gradient-mid: #f6f8fa;
+  --color-bg-gradient-end: #eaeef2;
+
+  /* Buttons with contrast but not pastel */
+  --color-button: #eaeef2;
+  --color-button-hover: #d0d7de;
+  --color-button-opacity: rgba(234, 238, 242, 0.85);
+
+  /* Borders subtle but visible */
+  --color-border: #d0d7de;
+  --color-border-light: rgba(208, 215, 222, 0.6);
+
+  /* Icons – darker so they don’t bleach out */
+  --color-icon: #24292f;
+  --color-icon-light: #57606a;
+  --color-icon-on-button: #24292f; /* <-- changed from white */
+  --color-icon-muted: #8c959f;
+
+  /* Loading / error */
+  --color-loading: #57606a;
+  --color-loading-light: #8c959f;
+  --color-error: #cf222e;
+
+  /* Code blocks */
+  --color-code-bg: #f6f8fa;
+
+  /* Scrollbars */
+  --scrollbar-track: #f6f8fa;
+  --scrollbar-thumb: #d0d7de;
+  --scrollbar-thumb-hover: #afb8c1;
+
+  --code-scrollbar-track: #f6f8fa;
+  --code-scrollbar-thumb: #d0d7de;
+  --code-scrollbar-thumb-hover: #afb8c1;
+}
+  
