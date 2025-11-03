@@ -46,6 +46,12 @@ Do not use brackets or special characters inside Mermaid code. Only use letters 
 For mermaid diagrams, use simple flowchart syntax: A --> B --> C (avoid complex syntax that might cause errors).
 """
 
+SEARCH_SYSTEM_PROMPT = """You are a research assistant AI.
+Your job is to search for and synthesize the most relevant and accurate information.
+Focus on finding current, factual information from reliable sources.
+Provide comprehensive summaries with key points clearly outlined.
+"""
+
 
 current_key = 0
 
@@ -236,6 +242,74 @@ def _normalize_json_response(data):
             data[key] = re.sub(r'[\x00-\x08\x0B-\x0C\x0E-\x1F\x7F]', '', data[key])
 
     return data
+
+def _search_and_gather(prompt, age=None, difficulty_level=None, max_retries=3):
+    config_params = {
+        "system_instruction": SEARCH_SYSTEM_PROMPT,
+        "temperature": 0.3,
+        "max_output_tokens": 8192,
+    }
+
+    grounding_tool = types.Tool(
+        google_search=types.GoogleSearch()
+    )
+    config_params["tools"] = [grounding_tool]
+
+    config = types.GenerateContentConfig(**config_params)
+
+    control_tokens = []
+    if age is not None:
+        control_tokens.append(f"Age Group: {age}")
+    if difficulty_level is not None:
+        control_tokens.append(f"Difficulty: {difficulty_level}")
+
+    if control_tokens:
+        control_string = "\n\nControl Parameters: " + ", ".join(control_tokens)
+        final_prompt = prompt + control_string
+    else:
+        final_prompt = prompt
+
+    total_attempts = len(API_KEYS) * max_retries
+    attempt_count = 0
+
+    while attempt_count < total_attempts:
+        client = _get_client()
+        try:
+            print(f"[SEARCH] Attempting API call #{attempt_count + 1}/{total_attempts} (Key #{current_key})")
+
+            response = client.models.generate_content(
+                model="gemini-2.0-flash-exp",
+                config=config,
+                contents=final_prompt
+            )
+
+            if response is None or response.text is None:
+                print("[ERROR] Response is None")
+                attempt_count += 1
+                _rotate_key()
+                continue
+
+            print("[SEARCH] Success - Retrieved information from web")
+            return response.text
+
+        except Exception as e:
+            code = getattr(e, "code", None)
+
+            if code in [401, 403, 429]:
+                print(f"[ERROR {code}] API Key failed or Rate Limit exceeded.")
+                _rotate_key()
+                attempt_count += 1
+
+            elif attempt_count >= total_attempts - 1:
+                print(f"!!! [FATAL] All search attempts failed. Last error: {e}")
+                raise e
+
+            else:
+                print(f"[WARN] Error: {e}. Retrying...")
+                _rotate_key()
+                attempt_count += 1
+
+    raise ValueError("All search attempts failed")
 
 
 def ai(prompt, schema=SCHEMA, use_search=False, age=None, difficulty_level=None, max_retries=3):
