@@ -46,11 +46,25 @@ Do not use brackets or special characters inside Mermaid code. Only use letters 
 For mermaid diagrams, use simple flowchart syntax: A --> B --> C (avoid complex syntax that might cause errors).
 """
 
-SEARCH_SYSTEM_PROMPT = """You are a research assistant AI.
-Your job is to search for and synthesize the most relevant and accurate information.
-Focus on finding current, factual information from reliable sources.
-Provide comprehensive summaries with key points clearly outlined.
-"""
+SIMPLE_DIAGRAM_PROMPT = """Generate a VERY SIMPLE mermaid flowchart diagram about: {topic}
+
+CRITICAL RULES:
+1. Use ONLY basic flowchart syntax: graph TD
+2. Use ONLY simple arrows: -->
+3. Use ONLY letters for node IDs (A, B, C, etc.)
+4. Keep node labels SHORT (max 20 characters)
+5. Use ONLY alphanumeric characters and spaces in labels
+6. Maximum 5-6 nodes total
+7. NO special characters, NO brackets in labels
+8. NO quotes around labels unless absolutely necessary
+
+Example format:
+graph TD
+    A[Start] --> B[Step One]
+    B --> C[Step Two]
+    C --> D[End]
+
+Return ONLY the mermaid code, nothing else."""
 
 
 current_key = 0
@@ -127,7 +141,7 @@ def _repair_truncated_json(json_str, error_pos=None):
     if not fixed.endswith('"') and not fixed.endswith('}') and not fixed.endswith(']'):
 
         quote_count = fixed.count('"') - fixed.count('\\"')
-        if quote_count % 2 == 1:  # Odd number means unterminated string
+        if quote_count % 2 == 1:
             fixed += '"'
             print("[REPAIR] Added closing quote")
 
@@ -152,7 +166,6 @@ def _validate_and_fix_json(raw_text):
     except json.JSONDecodeError as e:
         print(f"[JSON ERROR] {e}")
 
-    # Step 2: Try extracting from markdown
     extracted = _extract_json_from_text(raw_text)
     if extracted and extracted != raw_text:
         try:
@@ -160,9 +173,8 @@ def _validate_and_fix_json(raw_text):
             print("[VALIDATION] Extracted JSON from markdown")
             return parsed
         except json.JSONDecodeError:
-            raw_text = extracted  # Continue with extracted version
+            raw_text = extracted
 
-    # Step 3: Fix common escape issues
     try:
         fixed = _fix_unescaped_characters(raw_text)
         parsed = json.loads(fixed)
@@ -171,7 +183,6 @@ def _validate_and_fix_json(raw_text):
     except json.JSONDecodeError as e:
         pass
 
-    # Step 4: Try to repair truncated JSON
     try:
         repaired = _repair_truncated_json(raw_text, e.pos if 'e' in locals() else None)
         parsed = json.loads(repaired)
@@ -180,13 +191,10 @@ def _validate_and_fix_json(raw_text):
     except json.JSONDecodeError:
         pass
 
-    # Step 5: Last resort - try to salvage partial data
     print("[VALIDATION] Attempting partial data recovery...")
     try:
-        # Try to extract at least some valid JSON objects
         partial_match = re.search(r'\{[^{}]*"foundations"[^{}]*\}', raw_text, re.DOTALL)
         if partial_match:
-            # Build a minimal valid response
             fallback = {
                 "foundations": "Error: Incomplete response from API",
                 "concepts": "Error: Incomplete response from API", 
@@ -195,7 +203,7 @@ def _validate_and_fix_json(raw_text):
                 "problems": "N/A",
                 "study_plan": "N/A",
                 "further_questions": [],
-                "mermaid_diagram": "graph TD\n    A[Response Error] --> B[Please regenerate]",
+                "mermaid_diagram": "",
                 "code": ""
             }
             print(f"[VALIDATION] Returning fallback response: {json.dumps(fallback, indent=2)}")
@@ -203,7 +211,6 @@ def _validate_and_fix_json(raw_text):
     except Exception:
         pass
 
-    # If all else fails, raise the original error
     raise ValueError(f"Could not parse or repair JSON response. Length: {len(raw_text)}")
 
 
@@ -219,7 +226,6 @@ def _ensure_schema_compliance(data):
             else:
                 data[field] = ""
 
-    # Ensure further_questions is a list
     if "further_questions" in data and not isinstance(data["further_questions"], list):
         print("[SCHEMA FIX] Converting further_questions to list")
         data["further_questions"] = [str(data["further_questions"])]
@@ -229,87 +235,80 @@ def _ensure_schema_compliance(data):
 
 def _normalize_json_response(data):
     """Normalize and clean the JSON response."""
-
-    # Ensure all string fields are actually strings
     for key, value in data.items():
         if key != "further_questions" and value is not None and not isinstance(value, str):
             data[key] = str(value)
 
-    # Clean up any remaining control characters
     for key in data:
         if isinstance(data[key], str):
-            # Remove control characters except newlines and tabs
             data[key] = re.sub(r'[\x00-\x08\x0B-\x0C\x0E-\x1F\x7F]', '', data[key])
 
     return data
 
-def _search_and_gather(prompt, age=None, difficulty_level=None, max_retries=3):
-    config_params = {
-        "system_instruction": SEARCH_SYSTEM_PROMPT,
-        "temperature": 0.3,
-        "max_output_tokens": 8192,
-    }
 
-    grounding_tool = types.Tool(
-        google_search=types.GoogleSearch()
-    )
-    config_params["tools"] = [grounding_tool]
-
-    config = types.GenerateContentConfig(**config_params)
-
-    control_tokens = []
-    if age is not None:
-        control_tokens.append(f"Age Group: {age}")
-    if difficulty_level is not None:
-        control_tokens.append(f"Difficulty: {difficulty_level}")
-
-    if control_tokens:
-        control_string = "\n\nControl Parameters: " + ", ".join(control_tokens)
-        final_prompt = prompt + control_string
-    else:
-        final_prompt = prompt
-
-    total_attempts = len(API_KEYS) * max_retries
-    attempt_count = 0
-
-    while attempt_count < total_attempts:
-        client = _get_client()
+def _generate_simple_diagram(topic, max_attempts=2):
+    """Generate a simple mermaid diagram with retry logic"""
+    print(f"[DIAGRAM] Attempting to generate simple diagram for topic: {topic}")
+    
+    for attempt in range(max_attempts):
         try:
-            print(f"[SEARCH] Attempting API call #{attempt_count + 1}/{total_attempts} (Key #{current_key})")
-
+            client = _get_client()
+            prompt = SIMPLE_DIAGRAM_PROMPT.format(topic=topic)
+            
+            config = types.GenerateContentConfig(
+                temperature=0.1,
+                max_output_tokens=500,
+            )
+            
             response = client.models.generate_content(
                 model="gemini-2.0-flash-exp",
                 config=config,
-                contents=final_prompt
+                contents=prompt
             )
-
-            if response is None or response.text is None:
-                print("[ERROR] Response is None")
-                attempt_count += 1
-                _rotate_key()
-                continue
-
-            print("[SEARCH] Success - Retrieved information from web")
-            return response.text
-
+            
+            if response and response.text:
+                diagram = response.text.strip()
+                # Clean up the diagram
+                diagram = diagram.replace('```mermaid', '').replace('```', '').strip()
+                print(f"[DIAGRAM] Successfully generated simple diagram (attempt {attempt + 1})")
+                return diagram
+                
         except Exception as e:
-            code = getattr(e, "code", None)
-
-            if code in [401, 403, 429]:
-                print(f"[ERROR {code}] API Key failed or Rate Limit exceeded.")
+            print(f"[DIAGRAM] Attempt {attempt + 1} failed: {e}")
+            if attempt < max_attempts - 1:
                 _rotate_key()
-                attempt_count += 1
+            
+    print("[DIAGRAM] All attempts to generate simple diagram failed")
+    return ""
 
-            elif attempt_count >= total_attempts - 1:
-                print(f"!!! [FATAL] All search attempts failed. Last error: {e}")
-                raise e
 
-            else:
-                print(f"[WARN] Error: {e}. Retrying...")
-                _rotate_key()
-                attempt_count += 1
-
-    raise ValueError("All search attempts failed")
+def _validate_mermaid_diagram(diagram):
+    """Check if a mermaid diagram is likely to be valid"""
+    if not diagram or not diagram.strip():
+        return False
+    
+    # Check for common error indicators
+    error_indicators = [
+        'Diagram Not Available',
+        'Diagram Error',
+        'Please try regenerating',
+        'No diagram available',
+        'Error',
+        'Failed'
+    ]
+    
+    for indicator in error_indicators:
+        if indicator in diagram:
+            return False
+    
+    # Check if it has basic mermaid structure
+    diagram_lower = diagram.lower()
+    valid_types = ['graph', 'flowchart', 'sequencediagram', 'classdiagram', 'pie', 'journey', 'gantt']
+    
+    has_valid_type = any(diagram_lower.startswith(t) for t in valid_types)
+    has_arrows = '-->' in diagram or '---' in diagram
+    
+    return has_valid_type or has_arrows
 
 
 def ai(prompt, schema=SCHEMA, use_search=False, age=None, difficulty_level=None, max_retries=3):
@@ -357,7 +356,6 @@ def ai(prompt, schema=SCHEMA, use_search=False, age=None, difficulty_level=None,
                 contents=final_prompt
             )
 
-            # Check if response is None or empty
             if response is None:
                 print("[ERROR] Response is None")
                 attempt_count += 1
@@ -381,16 +379,25 @@ def ai(prompt, schema=SCHEMA, use_search=False, age=None, difficulty_level=None,
             else:
                 print(f"JSON Mode: Received {len(raw_text)} characters")
 
-                # Parse and validate JSON
                 parsed = _validate_and_fix_json(raw_text)
-
-                # Ensure schema compliance
                 parsed = _ensure_schema_compliance(parsed)
-
-                # Normalize the response
                 parsed = _normalize_json_response(parsed)
 
-                # Final validation - ensure it's serializable
+                # Validate and retry diagram generation if needed
+                if "mermaid_diagram" in parsed:
+                    if not _validate_mermaid_diagram(parsed["mermaid_diagram"]):
+                        print("[DIAGRAM] Invalid diagram detected, attempting simple diagram generation")
+                        # Extract topic from prompt for simple diagram
+                        topic = prompt[:100] if len(prompt) > 100 else prompt
+                        simple_diagram = _generate_simple_diagram(topic)
+                        if simple_diagram and _validate_mermaid_diagram(simple_diagram):
+                            parsed["mermaid_diagram"] = simple_diagram
+                            print("[DIAGRAM] Successfully replaced with simple diagram")
+                        else:
+                            # Set to empty string to hide in frontend
+                            parsed["mermaid_diagram"] = ""
+                            print("[DIAGRAM] Could not generate valid diagram, setting to empty")
+
                 try:
                     json.dumps(parsed)
                     print(f"JSON Mode: Success. Response validated and normalized.")
@@ -432,7 +439,6 @@ def ai(prompt, schema=SCHEMA, use_search=False, age=None, difficulty_level=None,
                 _rotate_key()
                 attempt_count += 1
 
-    # Final fallback - return error response in valid format
     error_response = {
         "error": "All API attempts failed.",
         "foundations": "Error: Could not generate response",
@@ -442,7 +448,7 @@ def ai(prompt, schema=SCHEMA, use_search=False, age=None, difficulty_level=None,
         "problems": "N/A",
         "study_plan": "N/A",
         "further_questions": [],
-        "mindmap": "",
+        "mermaid_diagram": "",
         "code": ""
     }
     print(f"[FINAL FALLBACK] Returning error response:\n{json.dumps(error_response, indent=2)}")
