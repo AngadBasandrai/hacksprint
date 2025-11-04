@@ -35,4 +35,4 @@ frontend/*~
 frontend/.vite
 
 backend/.env
-backend/__pycache__
+backend/__pycache__/
